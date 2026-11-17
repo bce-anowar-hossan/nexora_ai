@@ -25,6 +25,7 @@ type Product = {
   category_id: string | null;
   categories?: { name: string }[] | null;
   inventory?: { quantity: number; low_stock_threshold: number }[];
+  variants?: { id: string; name: string; sku: string | null; price: number; inventory?: { quantity: number }[] }[];
 };
 
 type Category = {
@@ -39,6 +40,13 @@ export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [categoryName, setCategoryName] = useState("");
+  const [variantProduct, setVariantProduct] = useState<Product | null>(null);
+  const [variantName, setVariantName] = useState("");
+  const [variantSku, setVariantSku] = useState("");
+  const [variantPrice, setVariantPrice] = useState("");
+  const [variantQuantity, setVariantQuantity] = useState("0");
+  const [historyProduct, setHistoryProduct] = useState<Product | null>(null);
+  const [stockHistory, setStockHistory] = useState<{ id: string; movement_type: string; quantity_change: number; reason: string | null; created_at: string }[]>([]);
   const [companyId, setCompanyId] = useState("");
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -87,7 +95,7 @@ export default function ProductsPage() {
       const [productResult, categoryResult] = await Promise.all([
         supabase
           .from("products")
-          .select("id,name,description,sku,price,status,category_id,categories!products_category_id_fkey(name),inventory!inventory_product_id_fkey(quantity,low_stock_threshold)")
+          .select("id,name,description,sku,price,status,category_id,categories!products_category_id_fkey(name),inventory!inventory_product_id_fkey(quantity,low_stock_threshold),variants:product_variants!product_variants_product_id_fkey(id,name,sku,price,inventory!inventory_product_id_fkey(quantity))")
           .eq("company_id", activeCompanyId)
           .order("created_at", { ascending: false }),
         supabase
@@ -260,6 +268,91 @@ export default function ProductsPage() {
 
     setCategoryName("");
     await loadProducts();
+  }
+
+  async function createVariant(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!variantProduct || !companyId) return;
+
+    const price = Number(variantPrice);
+    const quantity = Number(variantQuantity);
+    if (!variantName.trim() || !Number.isFinite(price) || price < 0 ||
+        !Number.isInteger(quantity) || quantity < 0) {
+      setError("Variant name, valid price and stock are required.");
+      return;
+    }
+
+    const { data, error: insertError } = await supabase
+      .from("product_variants")
+      .insert({
+        company_id: companyId,
+        product_id: variantProduct.id,
+        name: variantName.trim(),
+        sku: variantSku.trim() || null,
+        price,
+      })
+      .select("id")
+      .single();
+
+    if (insertError) {
+      setError(insertError.message);
+      return;
+    }
+
+    const { error: stockError } = await supabase.rpc("set_variant_stock", {
+      p_company_id: companyId,
+      p_product_id: variantProduct.id,
+      p_variant_id: data.id,
+      p_quantity: quantity,
+      p_reason: "Initial variant stock",
+    });
+
+    if (stockError) {
+      setError(stockError.message);
+      return;
+    }
+
+    setVariantProduct(null);
+    setVariantName("");
+    setVariantSku("");
+    setVariantPrice("");
+    setVariantQuantity("0");
+    await loadProducts();
+  }
+
+  async function showStockHistory(product: Product) {
+    setHistoryProduct(product);
+    setStockHistory([]);
+
+    const { data: inventoryRows, error: inventoryError } = await supabase
+      .from("inventory")
+      .select("id")
+      .eq("company_id", companyId)
+      .eq("product_id", product.id)
+      .is("variant_id", null);
+
+    if (inventoryError) {
+      setError(inventoryError.message);
+      return;
+    }
+
+    const ids = (inventoryRows || []).map((row) => row.id);
+    if (!ids.length) return;
+
+    const { data, error: historyError } = await supabase
+      .from("inventory_movements")
+      .select("id,movement_type,quantity_change,reason,created_at")
+      .in("inventory_id", ids)
+      .eq("company_id", companyId)
+      .order("created_at", { ascending: false })
+      .limit(50);
+
+    if (historyError) {
+      setError(historyError.message);
+      return;
+    }
+
+    setStockHistory(data || []);
   }
 
   async function archiveProduct(product: Product) {
@@ -456,6 +549,26 @@ export default function ProductsPage() {
                       <td className="px-5 py-4">
                         <div className="flex justify-end gap-2">
                           <button
+                            onClick={() => {
+                              setVariantProduct(product);
+                              setVariantName("");
+                              setVariantSku("");
+                              setVariantPrice(String(product.price));
+                              setVariantQuantity("0");
+                            }}
+                            title="Manage variants"
+                            className="rounded-lg px-2 py-2 text-xs text-violet-400 hover:bg-violet-500/10"
+                          >
+                            Variants
+                          </button>
+                          <button
+                            onClick={() => void showStockHistory(product)}
+                            title="Stock history"
+                            className="rounded-lg px-2 py-2 text-xs text-cyan-400 hover:bg-cyan-500/10"
+                          >
+                            History
+                          </button>
+                          <button
                             onClick={() => openEditProduct(product)}
                             aria-label="Edit product"
                             className="rounded-lg p-2 text-slate-400 hover:bg-blue-500/10 hover:text-blue-400"
@@ -489,6 +602,51 @@ export default function ProductsPage() {
             </div>
           )}
         </section>
+
+        {variantProduct && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+            <form onSubmit={createVariant} className="w-full max-w-lg rounded-2xl border border-[#243149] bg-[#111C2F] p-6">
+              <div className="mb-5 flex items-center justify-between">
+                <h2 className="text-xl font-bold">Add Variant — {variantProduct.name}</h2>
+                <button type="button" onClick={() => setVariantProduct(null)}><X size={20} /></button>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <input required maxLength={100} value={variantName} onChange={e => setVariantName(e.target.value)} placeholder="Variant name (e.g. Red / Large)" className="rounded-xl border border-[#243149] bg-[#080D18] p-3 sm:col-span-2" />
+                <input value={variantSku} onChange={e => setVariantSku(e.target.value)} placeholder="Variant SKU" className="rounded-xl border border-[#243149] bg-[#080D18] p-3" />
+                <input required type="number" min="0" step="0.01" value={variantPrice} onChange={e => setVariantPrice(e.target.value)} placeholder="Price" className="rounded-xl border border-[#243149] bg-[#080D18] p-3" />
+                <input required type="number" min="0" step="1" value={variantQuantity} onChange={e => setVariantQuantity(e.target.value)} placeholder="Initial stock" className="rounded-xl border border-[#243149] bg-[#080D18] p-3" />
+              </div>
+              <button className="mt-5 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold">Save Variant</button>
+              <div className="mt-5 border-t border-[#243149] pt-4">
+                <h3 className="mb-2 font-semibold">Existing Variants</h3>
+                {(variantProduct.variants || []).map(v => (
+                  <div key={v.id} className="flex justify-between border-b border-[#243149] py-2 text-sm">
+                    <span>{v.name} <span className="text-slate-500">{v.sku || ""}</span></span>
+                    <span>৳{Number(v.price).toLocaleString("en-BD")} · {v.inventory?.[0]?.quantity ?? 0} in stock</span>
+                  </div>
+                ))}
+                {!(variantProduct.variants || []).length && <p className="text-sm text-slate-400">No variants yet.</p>}
+              </div>
+            </form>
+          </div>
+        )}
+
+        {historyProduct && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+            <div className="max-h-[80vh] w-full max-w-2xl overflow-y-auto rounded-2xl border border-[#243149] bg-[#111C2F] p-6">
+              <div className="mb-5 flex items-center justify-between">
+                <h2 className="text-xl font-bold">Stock History — {historyProduct.name}</h2>
+                <button onClick={() => setHistoryProduct(null)}><X size={20} /></button>
+              </div>
+              {stockHistory.length ? stockHistory.map(item => (
+                <div key={item.id} className="flex flex-wrap justify-between gap-2 border-b border-[#243149] py-3 text-sm">
+                  <div><strong>{item.movement_type}</strong><p className="text-xs text-slate-400">{item.reason || "No reason"}</p></div>
+                  <div className="text-right"><strong>{item.quantity_change > 0 ? "+" : ""}{item.quantity_change}</strong><p className="text-xs text-slate-400">{new Date(item.created_at).toLocaleString()}</p></div>
+                </div>
+              )) : <p className="text-sm text-slate-400">No stock movement history found.</p>}
+            </div>
+          </div>
+        )}
 
         {showForm && (
           <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/70 p-4">
