@@ -2,6 +2,7 @@
 "use client";
 
 import { useState } from "react";
+import LogoutButton from "@/components/auth/logout-button";
 import {
   LayoutDashboard, Bot, Package, ShoppingCart,
   Users, MessageSquare, Share2, CalendarDays,
@@ -111,7 +112,7 @@ export default function Home() {
               <p className="truncate text-sm font-semibold">Admin User</p>
               <p className="text-xs text-slate-500">Workspace Admin</p>
             </div>
-            <MoreHorizontal size={19} className="text-slate-400" />
+            <LogoutButton />
           </div>
         </div>
       </aside>
