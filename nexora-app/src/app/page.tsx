@@ -1,7 +1,8 @@
 
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { createClient } from "@/lib/supabase/client";
 import LogoutButton from "@/components/auth/logout-button";
 import {
   LayoutDashboard, Bot, Package, ShoppingCart,
@@ -47,6 +48,101 @@ export default function Home() {
   const [menuOpen, setMenuOpen] = useState(false);
   const [active, setActive] = useState("Overview");
   const [language, setLanguage] = useState("EN");
+  const [companyName, setCompanyName] = useState("Loading workspace...");
+  const [userName, setUserName] = useState("Loading...");
+  const [roleName, setRoleName] = useState("Member");
+  const [workspaceError, setWorkspaceError] = useState("");
+
+  useEffect(() => {
+    let active = true;
+
+    async function loadWorkspace() {
+      const supabase = createClient();
+
+      try {
+        const { data: { user }, error: userError } =
+          await supabase.auth.getUser();
+
+        if (userError || !user) {
+          throw new Error("Unable to load your account. Please log in again.");
+        }
+
+        const metadataName =
+          typeof user.user_metadata?.full_name === "string"
+            ? user.user_metadata.full_name
+            : "";
+
+        const fallbackName = user.email?.split("@")[0] || "User";
+
+        const { data: profile } = await supabase
+          .from("profiles")
+          .select("full_name")
+          .eq("id", user.id)
+          .maybeSingle();
+
+        const { data: memberships, error: memberError } = await supabase
+          .from("company_members")
+          .select("company_id, role_id")
+          .eq("user_id", user.id)
+          .eq("status", "active");
+
+        if (memberError) throw memberError;
+
+        if (!memberships || memberships.length === 0) {
+          throw new Error("No active workspace found. Please contact your workspace owner.");
+        }
+
+        const membership = memberships[0];
+
+        const { data: company, error: companyError } = await supabase
+          .from("companies")
+          .select("id, name, slug")
+          .eq("id", membership.company_id)
+          .maybeSingle();
+
+        if (companyError) throw companyError;
+        if (!company) throw new Error("Workspace information could not be found.");
+
+        const { data: role, error: roleError } = await supabase
+          .from("roles")
+          .select("name, code")
+          .eq("id", membership.role_id)
+          .maybeSingle();
+
+        if (roleError) throw roleError;
+
+        if (!active) return;
+
+        setCompanyName(company.name);
+        setUserName(profile?.full_name || metadataName || fallbackName);
+        setRoleName(role?.name || "Member");
+      } catch (error) {
+        if (!active) return;
+
+        const errorMessage =
+          typeof error === "object" &&
+          error !== null &&
+          "message" in error &&
+          typeof error.message === "string"
+            ? error.message
+            : error instanceof Error
+              ? error.message
+              : JSON.stringify(error);
+
+        console.error("Workspace loading failed:", error);
+        setWorkspaceError(errorMessage || "Unable to load workspace.");
+        setCompanyName("Workspace unavailable");
+        setUserName("User");
+        setRoleName("Unknown");
+      }
+    }
+
+    loadWorkspace();
+
+    return () => {
+      active = false;
+    };
+  }, []);
 
   return (
     <div className="min-h-screen bg-[#080D18] text-[#F8FAFC]">
@@ -77,10 +173,10 @@ export default function Home() {
         <div className="px-4 pt-6">
           <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-[2px] text-slate-500">Workspace</p>
           <button className="flex w-full items-center gap-3 rounded-xl border border-[#243149] bg-[#111C2F] p-3 text-left">
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-purple-500/15 text-purple-400">N</div>
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-purple-500/15 text-purple-400">{companyName.charAt(0).toUpperCase()}</div>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold">My Business</p>
-              <p className="text-xs text-slate-500">Free workspace</p>
+              <p className="truncate text-sm font-semibold">{companyName}</p>
+              <p className="text-xs text-slate-500">Business workspace</p>
             </div>
             <ChevronDown size={16} className="text-slate-500" />
           </button>
@@ -107,10 +203,10 @@ export default function Home() {
 
         <div className="border-t border-[#243149] p-4">
           <div className="flex items-center gap-3 rounded-xl bg-[#111C2F] p-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-600 font-bold">A</div>
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-blue-600 font-bold">{userName.charAt(0).toUpperCase()}</div>
             <div className="min-w-0 flex-1">
-              <p className="truncate text-sm font-semibold">Admin User</p>
-              <p className="text-xs text-slate-500">Workspace Admin</p>
+              <p className="truncate text-sm font-semibold">{userName}</p>
+              <p className="text-xs text-slate-500">{roleName}</p>
             </div>
             <LogoutButton />
           </div>
@@ -139,14 +235,20 @@ export default function Home() {
               <Bell size={18} />
               <span className="absolute right-2 top-2 h-2 w-2 rounded-full bg-blue-500" />
             </button>
-            <div className="hidden h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-purple-600 text-sm font-bold sm:flex">A</div>
+            <div className="hidden h-9 w-9 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-purple-600 text-sm font-bold sm:flex">{userName.charAt(0).toUpperCase()}</div>
           </div>
         </header>
+
+        {workspaceError && (
+          <div role="alert" className="mx-4 mt-4 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300 sm:mx-8">
+            Workspace loading error: {workspaceError}
+          </div>
+        )}
 
         <div className="space-y-7 p-4 sm:p-8">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
-              <h2 className="text-2xl font-bold tracking-tight">Good morning, Admin 👋</h2>
+              <h2 className="text-2xl font-bold tracking-tight">Welcome, {userName} 👋</h2>
               <p className="mt-1 text-sm text-slate-400">Here&apos;s what&apos;s happening with your business today.</p>
             </div>
             <button className="premium-button flex items-center gap-2 px-4 py-2.5 text-sm font-semibold">
