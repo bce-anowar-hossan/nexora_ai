@@ -2,6 +2,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import LogoutButton from "@/components/auth/logout-button";
 import {
@@ -45,6 +46,7 @@ const orders = [
 ];
 
 export default function Home() {
+  const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const [active, setActive] = useState("Overview");
   const [language, setLanguage] = useState("EN");
@@ -187,7 +189,7 @@ export default function Home() {
           {navigation.map(({ label, icon: Icon }) => (
             <button
               key={label}
-              onClick={() => { setActive(label); setMenuOpen(false); }}
+              onClick={() => { setActive(label); setMenuOpen(false); if (label === "Products") router.push("/products"); }}
               className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition ${active === label ? "bg-blue-600/15 font-semibold text-blue-400" : "text-slate-400 hover:bg-[#111C2F] hover:text-white"}`}
             >
               <Icon size={18} />

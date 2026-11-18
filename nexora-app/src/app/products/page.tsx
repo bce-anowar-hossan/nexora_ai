@@ -12,6 +12,8 @@ import {
   X,
   Loader2,
   Boxes,
+  Images,
+  Trash2,
 } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
@@ -24,8 +26,18 @@ type Product = {
   status: "draft" | "active" | "archived";
   category_id: string | null;
   categories?: { name: string }[] | null;
-  inventory?: { quantity: number; low_stock_threshold: number }[];
+  inventory?: { quantity: number; low_stock_threshold: number; variant_id: string | null }[];
   variants?: { id: string; name: string; sku: string | null; price: number; inventory?: { quantity: number }[] }[];
+  images?: ProductImage[];
+};
+
+type ProductImage = {
+  id: string;
+  product_id: string;
+  storage_path: string;
+  alt_text: string | null;
+  position: number;
+  signedUrl: string;
 };
 
 type Category = {
@@ -40,6 +52,7 @@ export default function ProductsPage() {
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
   const [categoryName, setCategoryName] = useState("");
+  const [editingCategoryId, setEditingCategoryId] = useState<string | null>(null);
   const [variantProduct, setVariantProduct] = useState<Product | null>(null);
   const [variantName, setVariantName] = useState("");
   const [variantSku, setVariantSku] = useState("");
@@ -55,6 +68,9 @@ export default function ProductsPage() {
   const [search, setSearch] = useState("");
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [imageFiles, setImageFiles] = useState<File[]>([]);
+  const [galleryProduct, setGalleryProduct] = useState<Product | null>(null);
+  const [previewImage, setPreviewImage] = useState<ProductImage | null>(null);
 
   const [form, setForm] = useState({
     name: "",
@@ -63,6 +79,7 @@ export default function ProductsPage() {
     price: "",
     category_id: "",
     quantity: "0",
+    low_stock_threshold: "5",
     status: "draft",
   });
 
@@ -96,7 +113,7 @@ export default function ProductsPage() {
       const [productResult, categoryResult] = await Promise.all([
         supabase
           .from("products")
-          .select("id,name,description,sku,price,status,category_id,categories!products_category_id_fkey(name),inventory!inventory_product_id_fkey(quantity,low_stock_threshold)")
+          .select("id,name,description,sku,price,status,category_id,categories!products_category_id_fkey(name),inventory!inventory_product_id_fkey(quantity,low_stock_threshold,variant_id)")
           .eq("company_id", activeCompanyId)
           .order("created_at", { ascending: false }),
         supabase
@@ -109,7 +126,34 @@ export default function ProductsPage() {
       if (productResult.error) throw productResult.error;
       if (categoryResult.error) throw categoryResult.error;
 
-      setProducts((productResult.data || []) as Product[]);
+      const { data: imageRows, error: imageError } = await supabase
+        .from("product_images")
+        .select("id,product_id,storage_path,alt_text,position")
+        .eq("company_id", activeCompanyId)
+        .order("position");
+
+      if (imageError) throw imageError;
+
+      const imagesWithUrls = await Promise.all(
+        (imageRows || []).map(async (image) => {
+          const { data, error } = await supabase.storage
+            .from("product-images")
+            .createSignedUrl(image.storage_path, 3600);
+
+          if (error) throw error;
+
+          return { ...image, signedUrl: data.signedUrl };
+        })
+      );
+
+      setProducts(
+        (productResult.data || []).map((product) => ({
+          ...product,
+          images: imagesWithUrls.filter(
+            (image) => image.product_id === product.id
+          ),
+        })) as Product[]
+      );
       setCategories(categoryResult.data || []);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Unable to load products.");
@@ -126,8 +170,46 @@ export default function ProductsPage() {
     return () => window.clearTimeout(timer);
   }, [loadProducts]);
 
+  async function deleteProductImage(image: ProductImage) {
+    if (!companyId) return;
+
+    if (!window.confirm("এই ছবিটি স্থায়ীভাবে Delete করতে চাও?")) return;
+
+    try {
+      setError("");
+
+      const { error: dbError } = await supabase
+        .from("product_images")
+        .delete()
+        .eq("id", image.id)
+        .eq("company_id", companyId);
+
+      if (dbError) throw dbError;
+
+      const { error: storageError } = await supabase.storage
+        .from("product-images")
+        .remove([image.storage_path]);
+
+      if (storageError) {
+        throw new Error(
+          "Image record deleted, but Storage cleanup failed: " +
+          storageError.message
+        );
+      }
+
+      setPreviewImage(null);
+      setGalleryProduct(null);
+      await loadProducts();
+    } catch (err) {
+      setError(
+        err instanceof Error ? err.message : "Image delete failed."
+      );
+    }
+  }
+
   function openNewProduct() {
     setEditingId(null);
+    setImageFiles([]);
     setForm({
       name: "",
       description: "",
@@ -135,6 +217,7 @@ export default function ProductsPage() {
       price: "",
       category_id: "",
       quantity: "0",
+      low_stock_threshold: "5",
       status: "draft",
     });
     setShowForm(true);
@@ -142,13 +225,15 @@ export default function ProductsPage() {
 
   function openEditProduct(product: Product) {
     setEditingId(product.id);
+    setImageFiles([]);
     setForm({
       name: product.name,
       description: product.description || "",
       sku: product.sku || "",
       price: String(product.price),
       category_id: product.category_id || "",
-      quantity: String(product.inventory?.[0]?.quantity ?? 0),
+      quantity: String(product.inventory?.find((item) => item.variant_id === null)?.quantity ?? 0),
+      low_stock_threshold: String(product.inventory?.find((item) => item.variant_id === null)?.low_stock_threshold ?? 5),
       status: product.status,
     });
     setShowForm(true);
@@ -164,6 +249,7 @@ export default function ProductsPage() {
 
       const price = Number(form.price);
       const quantity = Number(form.quantity);
+      const lowStockThreshold = Number(form.low_stock_threshold);
 
       if (!Number.isFinite(price) || price < 0) {
         throw new Error("Enter a valid product price.");
@@ -171,6 +257,10 @@ export default function ProductsPage() {
 
       if (!Number.isInteger(quantity) || quantity < 0) {
         throw new Error("Stock must be a whole number greater than or equal to zero.");
+      }
+
+      if (!Number.isInteger(lowStockThreshold) || lowStockThreshold < 0) {
+        throw new Error("Low stock threshold must be a whole number greater than or equal to zero.");
       }
 
       const productData = {
@@ -220,15 +310,86 @@ export default function ProductsPage() {
 
       if (stockError) throw stockError;
 
-      const { error: thresholdError } = await supabase
+      const { data: inventoryRow, error: thresholdError } = await supabase
         .from("inventory")
-        .update({ low_stock_threshold: 5 })
+        .update({ low_stock_threshold: lowStockThreshold })
         .eq("company_id", companyId)
         .eq("product_id", productId)
-        .is("variant_id", null);
+        .is("variant_id", null)
+        .select("id")
+        .maybeSingle();
 
       if (thresholdError) throw thresholdError;
 
+      if (!inventoryRow) {
+        const { error: insertInventoryError } = await supabase
+          .from("inventory")
+          .insert({
+            company_id: companyId,
+            product_id: productId,
+            variant_id: null,
+            quantity,
+            low_stock_threshold: lowStockThreshold,
+          });
+
+        if (insertInventoryError) throw insertInventoryError;
+      }
+
+      const { data: savedThreshold, error: verifyThresholdError } = await supabase
+        .from("inventory")
+        .select("low_stock_threshold")
+        .eq("company_id", companyId)
+        .eq("product_id", productId)
+        .is("variant_id", null)
+        .single();
+
+      if (verifyThresholdError) throw verifyThresholdError;
+
+      if (Number(savedThreshold.low_stock_threshold) !== lowStockThreshold) {
+        throw new Error("Low stock threshold was not saved correctly.");
+      }
+
+      if (imageFiles.length > 5) throw new Error("Maximum 5 images allowed.");
+
+      for (const [index, file] of imageFiles.entries()) {
+        const extensions: Record<string, string> = {
+          "image/jpeg": "jpg",
+          "image/png": "png",
+          "image/webp": "webp",
+          "image/gif": "gif",
+        };
+
+        const extension = extensions[file.type];
+        if (!extension) throw new Error("Only JPG, PNG, WebP and GIF are allowed.");
+        if (file.size > 5 * 1024 * 1024) {
+          throw new Error(`${file.name} exceeds the 5 MB limit.`);
+        }
+
+        const storagePath = `${companyId}/${productId}/${crypto.randomUUID()}.${extension}`;
+
+        const { error: uploadError } = await supabase.storage
+          .from("product-images")
+          .upload(storagePath, file, { contentType: file.type });
+
+        if (uploadError) throw uploadError;
+
+        const { error: imageError } = await supabase
+          .from("product_images")
+          .insert({
+            company_id: companyId,
+            product_id: productId,
+            storage_path: storagePath,
+            alt_text: file.name,
+            position: index,
+          });
+
+        if (imageError) {
+          await supabase.storage.from("product-images").remove([storagePath]);
+          throw imageError;
+        }
+      }
+
+      setImageFiles([]);
       setShowForm(false);
       setEditingId(null);
       await loadProducts();
@@ -258,9 +419,16 @@ export default function ProductsPage() {
     const name = categoryName.trim();
     if (!name || !companyId) return;
 
-    const { error: categoryError } = await supabase
-      .from("categories")
-      .insert({ company_id: companyId, name });
+    setError("");
+
+    const query = supabase.from("categories");
+
+    const { error: categoryError } = editingCategoryId
+      ? await query
+          .update({ name })
+          .eq("id", editingCategoryId)
+          .eq("company_id", companyId)
+      : await query.insert({ company_id: companyId, name });
 
     if (categoryError) {
       setError(categoryError.message);
@@ -268,6 +436,51 @@ export default function ProductsPage() {
     }
 
     setCategoryName("");
+    setEditingCategoryId(null);
+    await loadProducts();
+  }
+
+  async function deleteCategory(category: Category) {
+    if (!companyId) return;
+
+    setError("");
+
+    const { count, error: countError } = await supabase
+      .from("products")
+      .select("id", { count: "exact", head: true })
+      .eq("company_id", companyId)
+      .eq("category_id", category.id);
+
+    if (countError) {
+      setError(countError.message);
+      return;
+    }
+
+    if ((count || 0) > 0) {
+      setError(
+        `Cannot delete "${category.name}": ${count} product(s) still use this category. Move them to another category first.`
+      );
+      return;
+    }
+
+    if (!window.confirm(`Delete category "${category.name}"?`)) return;
+
+    const { error: deleteError } = await supabase
+      .from("categories")
+      .delete()
+      .eq("id", category.id)
+      .eq("company_id", companyId);
+
+    if (deleteError) {
+      setError(deleteError.message);
+      return;
+    }
+
+    if (editingCategoryId === category.id) {
+      setEditingCategoryId(null);
+      setCategoryName("");
+    }
+
     await loadProducts();
   }
 
@@ -445,9 +658,10 @@ export default function ProductsPage() {
   );
 
   const activeCount = products.filter((p) => p.status === "active").length;
-  const lowStockCount = products.filter(
-    (p) => (p.inventory?.[0]?.quantity ?? 0) <= (p.inventory?.[0]?.low_stock_threshold ?? 5)
-  ).length;
+  const lowStockCount = products.filter((p) => {
+    const baseInventory = p.inventory?.find((item) => item.variant_id === null);
+    return (baseInventory?.quantity ?? 0) <= (baseInventory?.low_stock_threshold ?? 5);
+  }).length;
 
   return (
     <main className="min-h-screen bg-[#080D18] p-5 text-slate-100 md:p-8">
@@ -518,12 +732,53 @@ export default function ProductsPage() {
               className="min-w-0 flex-1 rounded-xl border border-[#243149] bg-[#080D18] px-4 py-3 text-sm"
             />
             <button className="rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold">
-              Add Category
+              {editingCategoryId ? "Update Category" : "Add Category"}
             </button>
+            {editingCategoryId && (
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingCategoryId(null);
+                  setCategoryName("");
+                }}
+                className="rounded-xl border border-[#243149] px-4 py-3 text-sm"
+              >
+                Cancel
+              </button>
+            )}
           </form>
-          <p className="mt-3 text-xs text-slate-400">
-            {categories.map((c) => c.name).join(" • ") || "No categories yet"}
-          </p>
+
+          <div className="mt-4 flex flex-wrap gap-2">
+            {categories.length ? categories.map((category) => (
+              <div
+                key={category.id}
+                className="flex items-center gap-2 rounded-lg border border-[#243149] bg-[#080D18] px-3 py-2 text-sm"
+              >
+                <span>{category.name}</span>
+                <button
+                  type="button"
+                  title="Edit category"
+                  onClick={() => {
+                    setEditingCategoryId(category.id);
+                    setCategoryName(category.name);
+                  }}
+                  className="text-blue-400 hover:text-blue-300"
+                >
+                  <Pencil size={14} />
+                </button>
+                <button
+                  type="button"
+                  title="Delete category"
+                  onClick={() => void deleteCategory(category)}
+                  className="text-red-400 hover:text-red-300"
+                >
+                  <Trash2 size={14} />
+                </button>
+              </div>
+            )) : (
+              <p className="text-xs text-slate-400">No categories yet</p>
+            )}
+          </div>
         </section>
 
         <section className="overflow-hidden rounded-2xl border border-[#243149] bg-[#111C2F]">
@@ -581,9 +836,34 @@ export default function ProductsPage() {
                       className="border-t border-[#243149] hover:bg-white/[0.02]"
                     >
                       <td className="px-5 py-4">
-                        <div className="font-medium">{product.name}</div>
-                        <div className="mt-1 text-xs text-slate-500">
-                          SKU: {product.sku || "—"}
+                        <div className="flex items-center gap-3">
+                          {product.images?.[0] && (
+                            <button
+                              type="button"
+                              onClick={() => setGalleryProduct(product)}
+                              title="Open product image gallery"
+                            >
+                              <img
+                                src={product.images[0].signedUrl}
+                                alt={product.images[0].alt_text || product.name}
+                                className="h-12 w-12 rounded-lg border border-[#243149] object-cover"
+                              />
+                            </button>
+                          )}
+                          <div>
+                            <div className="font-medium">{product.name}</div>
+                            <div className="mt-1 text-xs text-slate-500">
+                              SKU: {product.sku || "—"}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => setGalleryProduct(product)}
+                              className="mt-2 inline-flex items-center gap-1 text-xs text-blue-400"
+                            >
+                              <Images size={14} />
+                              Images ({product.images?.length || 0})
+                            </button>
+                          </div>
                         </div>
                       </td>
                       <td className="px-5 py-4 text-slate-300">
@@ -593,7 +873,7 @@ export default function ProductsPage() {
                         ৳{Number(product.price).toLocaleString("en-BD")}
                       </td>
                       <td className="px-5 py-4">
-                        {product.inventory?.[0]?.quantity ?? 0}
+                        {product.inventory?.find((item) => item.variant_id === null)?.quantity ?? 0}
                       </td>
                       <td className="px-5 py-4">
                         <span className={`rounded-full px-3 py-1 text-xs ${
@@ -715,6 +995,90 @@ export default function ProductsPage() {
           </div>
         )}
 
+        {galleryProduct && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+            <div className="max-h-[85vh] w-full max-w-3xl overflow-y-auto rounded-2xl border border-[#243149] bg-[#111C2F] p-5">
+              <div className="mb-5 flex items-center justify-between">
+                <h2 className="text-lg font-bold">
+                  {galleryProduct.name} — Images
+                </h2>
+                <button
+                  type="button"
+                  onClick={() => setGalleryProduct(null)}
+                  aria-label="Close gallery"
+                >
+                  <X size={21} />
+                </button>
+              </div>
+
+              {galleryProduct.images?.length ? (
+                <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
+                  {galleryProduct.images.map((image) => (
+                    <div
+                      key={image.id}
+                      className="rounded-xl border border-[#243149] p-2"
+                    >
+                      <button
+                        type="button"
+                        onClick={() => setPreviewImage(image)}
+                        className="block w-full"
+                      >
+                        <img
+                          src={image.signedUrl}
+                          alt={image.alt_text || galleryProduct.name}
+                          className="h-36 w-full rounded-lg object-cover"
+                        />
+                      </button>
+                      <div className="mt-2 flex items-center justify-between gap-2">
+                        <span className="truncate text-xs text-slate-400">
+                          {image.alt_text || "Product Image"}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => void deleteProductImage(image)}
+                          title="Delete image"
+                          className="rounded-lg p-2 text-red-400 hover:bg-red-500/10"
+                        >
+                          <Trash2 size={17} />
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <p className="text-sm text-slate-400">
+                  No images uploaded.
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {previewImage && (
+          <div
+            className="fixed inset-0 z-[60] flex items-center justify-center bg-black/90 p-4"
+            onClick={() => setPreviewImage(null)}
+          >
+            <div
+              className="max-h-[90vh] max-w-4xl"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <img
+                src={previewImage.signedUrl}
+                alt={previewImage.alt_text || "Product Image"}
+                className="max-h-[80vh] max-w-full rounded-xl object-contain"
+              />
+              <button
+                type="button"
+                onClick={() => setPreviewImage(null)}
+                className="mt-3 rounded-lg bg-slate-700 px-4 py-2 text-white"
+              >
+                Close Preview
+              </button>
+            </div>
+          </div>
+        )}
+
         {showForm && (
           <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-black/70 p-4">
             <form
@@ -803,6 +1167,23 @@ export default function ProductsPage() {
                 </label>
 
                 <label className="text-sm">
+                  Low Stock Alert Threshold
+                  <input
+                    required
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={form.low_stock_threshold}
+                    onChange={(e) => setForm({ ...form, low_stock_threshold: e.target.value })}
+                    className="mt-2 w-full rounded-xl border border-[#243149] bg-[#080D18] px-4 py-3 outline-none"
+                    placeholder="5"
+                  />
+                  <span className="mt-1 block text-xs text-slate-400">
+                    Alert when stock reaches this quantity or below.
+                  </span>
+                </label>
+
+                <label className="text-sm">
                   Status
                   <select
                     value={form.status}
@@ -813,6 +1194,22 @@ export default function ProductsPage() {
                     <option value="active">Active</option>
                     <option value="archived">Archived</option>
                   </select>
+                </label>
+
+                <label className="text-sm sm:col-span-2">
+                  Product Images (Maximum 5, 5 MB each)
+                  <input
+                    type="file"
+                    accept="image/jpeg,image/png,image/webp,image/gif"
+                    multiple
+                    onChange={(e) => setImageFiles(Array.from(e.target.files || []))}
+                    className="mt-2 w-full rounded-xl border border-[#243149] bg-[#080D18] px-4 py-3 text-sm"
+                  />
+                  <span className="mt-2 block text-xs text-slate-400">
+                    {imageFiles.length
+                      ? imageFiles.map((file) => file.name).join(", ")
+                      : "Choose JPG, PNG, WebP or GIF images."}
+                  </span>
                 </label>
 
                 <label className="text-sm sm:col-span-2">
