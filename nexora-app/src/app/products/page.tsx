@@ -45,6 +45,7 @@ export default function ProductsPage() {
   const [variantSku, setVariantSku] = useState("");
   const [variantPrice, setVariantPrice] = useState("");
   const [variantQuantity, setVariantQuantity] = useState("0");
+  const [editingVariantId, setEditingVariantId] = useState<string | null>(null);
   const [historyProduct, setHistoryProduct] = useState<Product | null>(null);
   const [stockHistory, setStockHistory] = useState<{ id: string; movement_type: string; quantity_change: number; reason: string | null; created_at: string }[]>([]);
   const [companyId, setCompanyId] = useState("");
@@ -95,7 +96,7 @@ export default function ProductsPage() {
       const [productResult, categoryResult] = await Promise.all([
         supabase
           .from("products")
-          .select("id,name,description,sku,price,status,category_id,categories!products_category_id_fkey(name),inventory!inventory_product_id_fkey(quantity,low_stock_threshold),variants:product_variants!product_variants_product_id_fkey(id,name,sku,price,inventory!inventory_product_id_fkey(quantity))")
+          .select("id,name,description,sku,price,status,category_id,categories!products_category_id_fkey(name),inventory!inventory_product_id_fkey(quantity,low_stock_threshold)")
           .eq("company_id", activeCompanyId)
           .order("created_at", { ascending: false }),
         supabase
@@ -282,29 +283,52 @@ export default function ProductsPage() {
       return;
     }
 
-    const { data, error: insertError } = await supabase
-      .from("product_variants")
-      .insert({
-        company_id: companyId,
-        product_id: variantProduct.id,
-        name: variantName.trim(),
-        sku: variantSku.trim() || null,
-        price,
-      })
-      .select("id")
-      .single();
+    let variantId = editingVariantId;
 
-    if (insertError) {
-      setError(insertError.message);
-      return;
+    if (editingVariantId) {
+      const { error: updateError } = await supabase
+        .from("product_variants")
+        .update({
+          name: variantName.trim(),
+          sku: variantSku.trim() || null,
+          price,
+        })
+        .eq("id", editingVariantId)
+        .eq("company_id", companyId)
+        .eq("product_id", variantProduct.id);
+
+      if (updateError) {
+        setError(updateError.message);
+        return;
+      }
+    } else {
+      const { data, error: insertError } = await supabase
+        .from("product_variants")
+        .insert({
+          company_id: companyId,
+          product_id: variantProduct.id,
+          name: variantName.trim(),
+          sku: variantSku.trim() || null,
+          price,
+        })
+        .select("id")
+        .single();
+
+      if (insertError) {
+        setError(insertError.message);
+        return;
+      }
+      variantId = data.id;
     }
+
+    if (!variantId) return;
 
     const { error: stockError } = await supabase.rpc("set_variant_stock", {
       p_company_id: companyId,
       p_product_id: variantProduct.id,
-      p_variant_id: data.id,
+      p_variant_id: variantId,
       p_quantity: quantity,
-      p_reason: "Initial variant stock",
+      p_reason: editingVariantId ? "Variant stock adjustment" : "Initial variant stock",
     });
 
     if (stockError) {
@@ -313,11 +337,47 @@ export default function ProductsPage() {
     }
 
     setVariantProduct(null);
+    setEditingVariantId(null);
     setVariantName("");
     setVariantSku("");
     setVariantPrice("");
     setVariantQuantity("0");
     await loadProducts();
+  }
+
+  async function loadVariants(product: Product) {
+    setError("");
+
+    const { data, error: variantError } = await supabase
+      .from("product_variants")
+      .select("id,name,sku,price")
+      .eq("company_id", companyId)
+      .eq("product_id", product.id);
+
+    if (variantError) {
+      setError(variantError.message);
+      return;
+    }
+
+    const variants = await Promise.all((data || []).map(async (variant) => {
+      const { data: stock, error: stockError } = await supabase
+        .from("inventory")
+        .select("quantity")
+        .eq("company_id", companyId)
+        .eq("product_id", product.id)
+        .eq("variant_id", variant.id)
+        .maybeSingle();
+
+      if (stockError) throw stockError;
+      return { ...variant, inventory: stock ? [stock] : [] };
+    }));
+
+    setEditingVariantId(null);
+    setVariantName("");
+    setVariantSku("");
+    setVariantPrice(String(product.price));
+    setVariantQuantity("0");
+    setVariantProduct({ ...product, variants });
   }
 
   async function showStockHistory(product: Product) {
@@ -549,13 +609,7 @@ export default function ProductsPage() {
                       <td className="px-5 py-4">
                         <div className="flex justify-end gap-2">
                           <button
-                            onClick={() => {
-                              setVariantProduct(product);
-                              setVariantName("");
-                              setVariantSku("");
-                              setVariantPrice(String(product.price));
-                              setVariantQuantity("0");
-                            }}
+                            onClick={() => void loadVariants(product)}
                             title="Manage variants"
                             className="rounded-lg px-2 py-2 text-xs text-violet-400 hover:bg-violet-500/10"
                           >
@@ -607,7 +661,7 @@ export default function ProductsPage() {
           <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
             <form onSubmit={createVariant} className="w-full max-w-lg rounded-2xl border border-[#243149] bg-[#111C2F] p-6">
               <div className="mb-5 flex items-center justify-between">
-                <h2 className="text-xl font-bold">Add Variant — {variantProduct.name}</h2>
+                <h2 className="text-xl font-bold">{editingVariantId ? "Edit Variant" : "Add Variant"} — {variantProduct.name}</h2>
                 <button type="button" onClick={() => setVariantProduct(null)}><X size={20} /></button>
               </div>
               <div className="grid gap-3 sm:grid-cols-2">
@@ -616,13 +670,26 @@ export default function ProductsPage() {
                 <input required type="number" min="0" step="0.01" value={variantPrice} onChange={e => setVariantPrice(e.target.value)} placeholder="Price" className="rounded-xl border border-[#243149] bg-[#080D18] p-3" />
                 <input required type="number" min="0" step="1" value={variantQuantity} onChange={e => setVariantQuantity(e.target.value)} placeholder="Initial stock" className="rounded-xl border border-[#243149] bg-[#080D18] p-3" />
               </div>
-              <button className="mt-5 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold">Save Variant</button>
+              <button className="mt-5 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold">{editingVariantId ? "Update Variant" : "Save Variant"}</button>
               <div className="mt-5 border-t border-[#243149] pt-4">
                 <h3 className="mb-2 font-semibold">Existing Variants</h3>
                 {(variantProduct.variants || []).map(v => (
                   <div key={v.id} className="flex justify-between border-b border-[#243149] py-2 text-sm">
                     <span>{v.name} <span className="text-slate-500">{v.sku || ""}</span></span>
-                    <span>৳{Number(v.price).toLocaleString("en-BD")} · {v.inventory?.[0]?.quantity ?? 0} in stock</span>
+                    <span className="flex items-center gap-3">
+                      ৳{Number(v.price).toLocaleString("en-BD")} · {v.inventory?.[0]?.quantity ?? 0} in stock
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingVariantId(v.id);
+                          setVariantName(v.name);
+                          setVariantSku(v.sku || "");
+                          setVariantPrice(String(v.price));
+                          setVariantQuantity(String(v.inventory?.[0]?.quantity ?? 0));
+                        }}
+                        className="text-blue-400 hover:text-blue-300"
+                      >Edit</button>
+                    </span>
                   </div>
                 ))}
                 {!(variantProduct.variants || []).length && <p className="text-sm text-slate-400">No variants yet.</p>}
