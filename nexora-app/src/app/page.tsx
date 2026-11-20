@@ -11,8 +11,9 @@ import {
   Workflow, Megaphone, ChartNoAxesCombined,
   Plug, Settings, Bell, Search, Menu, X,
   TrendingUp, ArrowUpRight,
-  Sparkles, Clock3, CircleCheck, MoreHorizontal,
-  Plus, ChevronDown
+  Sparkles, CircleCheck, MoreHorizontal,
+  Plus, ChevronDown,
+  CreditCard,
 } from "lucide-react";
 
 const navigation = [
@@ -29,31 +30,116 @@ const navigation = [
   { label: "Campaigns", icon: Megaphone },
   { label: "Analytics", icon: ChartNoAxesCombined },
   { label: "Integrations", icon: Plug },
-];
+  { label: "Billing", icon: CreditCard },
+  { label: "Team Management", icon: Users },
+]
 
-const stats = [
-  { label: "Total Revenue", value: "$24,580", change: "+12.8%", icon: TrendingUp },
-  { label: "Total Orders", value: "1,284", change: "+8.2%", icon: ShoppingCart },
-  { label: "Customers", value: "8,549", change: "+14.5%", icon: Users },
-  { label: "AI Conversations", value: "3,642", change: "+18.3%", icon: Bot },
-];
-
-const orders = [
-  { id: "#NX-1024", customer: "Alex Morgan", product: "Premium Headphones", amount: "$129.00", status: "Confirmed" },
-  { id: "#NX-1023", customer: "Sarah Wilson", product: "Smart Watch Pro", amount: "$249.00", status: "Processing" },
-  { id: "#NX-1022", customer: "James Cooper", product: "Wireless Keyboard", amount: "$89.00", status: "Pending" },
-  { id: "#NX-1021", customer: "Emily Davis", product: "USB-C Hub", amount: "$59.00", status: "Delivered" },
-];
+type DashboardData = {
+  metrics: {
+    totalRevenue: number;
+    totalOrders: number;
+    totalCustomers: number;
+    pendingOrders: number;
+    deliveredOrders: number;
+    aiConversations: number | null;
+  };
+  recentOrders: Array<{
+    id: string;
+    order_number: string;
+    status: string;
+    total: number;
+    created_at: string;
+    customer: { name: string } | null;
+    items: Array<{ product_name: string; quantity: number }>;
+  }>;
+  recentActivity: Array<{
+    id: string;
+    action: string;
+    table_name: string;
+    record_id: string | null;
+    created_at: string;
+  }>;
+};
 
 export default function Home() {
   const router = useRouter();
   const [menuOpen, setMenuOpen] = useState(false);
   const [active, setActive] = useState("Overview");
-  const [language, setLanguage] = useState("EN");
+  const [language, setLanguage] = useState<"EN" | "বাংলা">("EN");
+
+  const dictionary: Record<string, string> = {
+    "Overview": "ওভারভিউ",
+    "AI Assistant": "এআই সহকারী",
+    "Products": "পণ্য",
+    "Orders": "অর্ডার",
+    "Customers": "গ্রাহক",
+    "Conversations": "কথোপকথন",
+    "Social Accounts": "সোশ্যাল অ্যাকাউন্ট",
+    "Content Studio": "কনটেন্ট স্টুডিও",
+    "Post Scheduler": "পোস্ট শিডিউলার",
+    "Automations": "অটোমেশন",
+    "Campaigns": "ক্যাম্পেইন",
+    "Analytics": "বিশ্লেষণ",
+    "Integrations": "ইন্টিগ্রেশন",
+    "Billing": "বিলিং",
+    "Team Management": "টিম ম্যানেজমেন্ট",
+    "Settings": "সেটিংস",
+    "Workspace": "ওয়ার্কস্পেস",
+    "Main Menu": "প্রধান মেনু",
+    "Preferences": "পছন্দসমূহ",
+    "Business workspace": "ব্যবসায়িক ওয়ার্কস্পেস",
+    "Welcome back! Here's your business overview.": "স্বাগতম! আপনার ব্যবসার সারসংক্ষেপ দেখুন।",
+    "Welcome,": "স্বাগতম,",
+    "Here's what's happening with your business today.": "আজ আপনার ব্যবসায় কী ঘটছে তার বিবরণ।",
+    "Create New": "নতুন তৈরি করুন",
+    "Total Revenue": "মোট আয়",
+    "Total Orders": "মোট অর্ডার",
+    "AI Conversations": "এআই কথোপকথন",
+    "Compared to last month": "গত মাসের তুলনায়",
+    "Revenue Overview": "আয়ের সারসংক্ষেপ",
+    "Last 7 days": "গত ৭ দিন",
+    "Recent Orders": "সাম্প্রতিক অর্ডার",
+    "View all orders": "সব অর্ডার দেখুন",
+    "Order ID": "অর্ডার আইডি",
+    "Customer": "গ্রাহক",
+    "Product": "পণ্য",
+    "Amount": "পরিমাণ",
+    "Status": "অবস্থা",
+    "Confirmed": "নিশ্চিত",
+    "Processing": "প্রক্রিয়াধীন",
+    "Pending": "অপেক্ষমাণ",
+    "Delivered": "ডেলিভারি সম্পন্ন",
+    "Recent Activity": "সাম্প্রতিক কার্যক্রম",
+    "Quick Actions": "দ্রুত কাজ",
+    "Add Product": "পণ্য যোগ করুন",
+    "View Orders": "অর্ডার দেখুন",
+    "Demo mode": "ডেমো মোড",
+    "Explore AI Assistant": "এআই সহকারী দেখুন",
+    "All rights reserved.": "সর্বস্বত্ব সংরক্ষিত।",
+  };
+
+  const t = (value: string) =>
+    language === "বাংলা" ? (dictionary[value] || value) : value;
+
+  useEffect(() => {
+    const saved = localStorage.getItem("nexora-language");
+    if (saved === "EN" || saved === "বাংলা") {
+      queueMicrotask(() => setLanguage(saved));
+    }
+  }, []);
+
+  useEffect(() => {
+    localStorage.setItem("nexora-language", language);
+    document.documentElement.lang = language === "বাংলা" ? "bn" : "en";
+  }, [language]);
   const [companyName, setCompanyName] = useState("Loading workspace...");
   const [userName, setUserName] = useState("Loading...");
   const [roleName, setRoleName] = useState("Member");
   const [workspaceError, setWorkspaceError] = useState("");
+  const [companyId, setCompanyId] = useState("");
+  const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
+  const [dashboardLoading, setDashboardLoading] = useState(true);
+  const [dashboardError, setDashboardError] = useState("");
 
   useEffect(() => {
     let active = true;
@@ -116,6 +202,7 @@ export default function Home() {
         if (!active) return;
 
         setCompanyName(company.name);
+        setCompanyId(company.id);
         setUserName(profile?.full_name || metadataName || fallbackName);
         setRoleName(role?.name || "Member");
       } catch (error) {
@@ -146,6 +233,49 @@ export default function Home() {
     };
   }, []);
 
+  useEffect(() => {
+    if (!companyId) return;
+
+    let active = true;
+
+    async function loadDashboard() {
+      setDashboardLoading(true);
+      setDashboardError("");
+
+      try {
+        const response = await fetch(
+          `/api/dashboard?company_id=${encodeURIComponent(companyId)}`,
+          { cache: "no-store" }
+        );
+        const result = await response.json();
+
+        if (!response.ok || !result.success || !result.data) {
+          throw new Error(result.error || "Dashboard data could not be loaded.");
+        }
+
+        if (active) setDashboardData(result.data as DashboardData);
+      } catch (error) {
+        if (!active) return;
+        setDashboardError(
+          error instanceof Error ? error.message : "Dashboard data could not be loaded."
+        );
+      } finally {
+        if (active) setDashboardLoading(false);
+      }
+    }
+
+    loadDashboard();
+
+    return () => {
+      active = false;
+    };
+  }, [companyId]);
+
+  const formatAmount = (value: number) =>
+    new Intl.NumberFormat(language === "বাংলা" ? "bn-BD" : "en-US", {
+      maximumFractionDigits: 2,
+    }).format(value);
+
   return (
     <div className="min-h-screen bg-[#080D18] text-[#F8FAFC]">
       {menuOpen && (
@@ -159,9 +289,7 @@ export default function Home() {
       <aside className={`fixed inset-y-0 left-0 z-50 flex w-[260px] flex-col border-r border-[#243149] bg-[#0D1422] transition-transform duration-300 ${menuOpen ? "translate-x-0" : "-translate-x-full"} lg:translate-x-0`}>
         <div className="flex h-[76px] items-center justify-between border-b border-[#243149] px-6">
           <div className="flex items-center gap-3">
-            <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-600">
-              <Sparkles size={22} />
-            </div>
+            <img src="/nexora-mark.svg" alt="NEXORA AI" className="h-11 w-11 rounded-xl shadow-lg shadow-blue-500/20" />
             <div>
               <h1 className="text-xl font-bold tracking-wide">NEXORA<span className="text-blue-400"> AI</span></h1>
               <p className="text-[10px] tracking-[2px] text-slate-500">BUSINESS AUTOMATION</p>
@@ -173,31 +301,50 @@ export default function Home() {
         </div>
 
         <div className="px-4 pt-6">
-          <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-[2px] text-slate-500">Workspace</p>
+          <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-[2px] text-slate-500">{t("Workspace")}</p>
           <button className="flex w-full items-center gap-3 rounded-xl border border-[#243149] bg-[#111C2F] p-3 text-left">
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-purple-500/15 text-purple-400">{companyName.charAt(0).toUpperCase()}</div>
             <div className="min-w-0 flex-1">
               <p className="truncate text-sm font-semibold">{companyName}</p>
-              <p className="text-xs text-slate-500">Business workspace</p>
+              <p className="text-xs text-slate-500">{t("Business workspace")}</p>
             </div>
             <ChevronDown size={16} className="text-slate-500" />
           </button>
         </div>
 
         <nav className="flex-1 space-y-1 overflow-y-auto px-4 py-6">
-          <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-[2px] text-slate-500">Main Menu</p>
+          <p className="mb-3 px-3 text-[10px] font-bold uppercase tracking-[2px] text-slate-500">{t("Main Menu")}</p>
           {navigation.map(({ label, icon: Icon }) => (
             <button
               key={label}
-              onClick={() => { setActive(label); setMenuOpen(false); if (label === "Products") router.push("/products"); }}
+              onClick={() => {
+                setActive(label);
+                setMenuOpen(false);
+                const routes: Record<string, string> = {
+                  Products: "/products",
+                  Orders: "/orders",
+                  Customers: "/customers",
+                  "AI Assistant": "/ai",
+                  "Content Studio": "/content",
+                  "Social Accounts": "/content",
+                  "Post Scheduler": "/content",
+                  Automations: "/automations",
+                  Campaigns: "/campaigns",
+                  Analytics: "/analytics",
+                  Integrations: "/integrations",
+                  Billing: "/billing",
+                  "Team Management": "/team",
+                };
+                if (routes[label]) router.push(routes[label]);
+              }}
               className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm transition ${active === label ? "bg-blue-600/15 font-semibold text-blue-400" : "text-slate-400 hover:bg-[#111C2F] hover:text-white"}`}
             >
               <Icon size={18} />
-              {label}
+              {t(label)}
               {label === "AI Assistant" && <span className="ml-auto rounded-md bg-purple-500/15 px-2 py-0.5 text-[10px] text-purple-400">AI</span>}
             </button>
           ))}
-          <p className="mb-3 mt-7 px-3 text-[10px] font-bold uppercase tracking-[2px] text-slate-500">Preferences</p>
+          <p className="mb-3 mt-7 px-3 text-[10px] font-bold uppercase tracking-[2px] text-slate-500">{t("Preferences")}</p>
           <button onClick={() => setActive("Settings")} className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm ${active === "Settings" ? "bg-blue-600/15 text-blue-400" : "text-slate-400 hover:bg-[#111C2F]"}`}>
             <Settings size={18} /> Settings
           </button>
@@ -222,8 +369,8 @@ export default function Home() {
               <Menu size={23} />
             </button>
             <div>
-              <h2 className="text-lg font-bold">{active}</h2>
-              <p className="hidden text-xs text-slate-500 sm:block">Welcome back! Here&apos;s your business overview.</p>
+              <h2 className="text-lg font-bold">{t(active)}</h2>
+              <p className="hidden text-xs text-slate-500 sm:block">{t("Welcome back! Here's your business overview.")}</p>
             </div>
           </div>
           <div className="flex items-center gap-2 sm:gap-4">
@@ -246,55 +393,64 @@ export default function Home() {
             Workspace loading error: {workspaceError}
           </div>
         )}
+        {dashboardError && (
+          <div role="alert" className="mx-4 mt-4 rounded-xl border border-red-500/30 bg-red-500/10 p-4 text-sm text-red-300 sm:mx-8">
+            Dashboard loading error: {dashboardError}
+          </div>
+        )}
 
         <div className="space-y-7 p-4 sm:p-8">
           <div className="flex flex-wrap items-center justify-between gap-4">
             <div>
-              <h2 className="text-2xl font-bold tracking-tight">Welcome, {userName} 👋</h2>
-              <p className="mt-1 text-sm text-slate-400">Here&apos;s what&apos;s happening with your business today.</p>
+              <h2 className="text-2xl font-bold tracking-tight">{t("Welcome,")} {userName} 👋</h2>
+              <p className="mt-1 text-sm text-slate-400">{t("Here's what's happening with your business today.")}</p>
             </div>
-            <button className="premium-button flex items-center gap-2 px-4 py-2.5 text-sm font-semibold">
-              <Plus size={17} /> Create New
+            <button onClick={() => router.push("/products")} className="premium-button flex items-center gap-2 px-4 py-2.5 text-sm font-semibold">
+              <Plus size={17} /> {t("Create New")}
             </button>
           </div>
 
           <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            {stats.map(({ label, value, change, icon: Icon }) => (
+            {[
+              { label: "Total Revenue", value: dashboardData ? formatAmount(dashboardData.metrics.totalRevenue) : "—", icon: TrendingUp, detail: "Delivered orders only" },
+              { label: "Total Orders", value: dashboardData ? formatAmount(dashboardData.metrics.totalOrders) : "—", icon: ShoppingCart, detail: dashboardData ? `${dashboardData.metrics.pendingOrders} pending` : " " },
+              { label: "Customers", value: dashboardData ? formatAmount(dashboardData.metrics.totalCustomers) : "—", icon: Users, detail: "Registered customers" },
+              { label: "AI Conversations", value: "Not connected", icon: Bot, detail: "AI module not connected" },
+            ].map(({ label, value, icon: Icon, detail }) => (
               <div key={label} className="rounded-2xl border border-[#243149] bg-[#111C2F] p-5">
-                <div className="flex items-center justify-between">
-                  <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/10 text-blue-400">
-                    <Icon size={20} />
-                  </div>
-                  <span className="flex items-center gap-1 rounded-full bg-green-500/10 px-2 py-1 text-xs font-semibold text-green-400">
-                    <TrendingUp size={13} /> {change}
-                  </span>
+                <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-500/10 text-blue-400">
+                  <Icon size={20} />
                 </div>
-                <p className="mt-5 text-sm text-slate-400">{label}</p>
-                <h3 className="mt-1 text-2xl font-bold tracking-tight">{value}</h3>
-                <p className="mt-2 text-xs text-slate-500">Compared to last month</p>
+                <p className="mt-5 text-sm text-slate-400">{t(label)}</p>
+                <h3 className="mt-1 text-2xl font-bold tracking-tight">
+                  {dashboardLoading ? "Loading..." : value}
+                </h3>
+                <p className="mt-2 text-xs text-slate-500">{detail}</p>
               </div>
             ))}
           </section>
 
           <section className="grid grid-cols-1 gap-6 xl:grid-cols-3">
             <div className="rounded-2xl border border-[#243149] bg-[#111C2F] p-6 xl:col-span-2">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <div>
-                  <h3 className="font-bold">Revenue Overview</h3>
-                  <p className="mt-1 text-xs text-slate-500">Sample dashboard data · Not connected to a live store</p>
+              <h3 className="font-bold">{t("Revenue Overview")}</h3>
+              <p className="mt-1 text-xs text-slate-500">Revenue from delivered orders</p>
+              <div className="mt-8 grid grid-cols-1 gap-4 sm:grid-cols-2">
+                <div className="rounded-xl border border-[#243149] bg-[#0D1422] p-5">
+                  <p className="text-sm text-slate-400">Delivered orders</p>
+                  <p className="mt-2 text-3xl font-bold">
+                    {dashboardLoading ? "—" : formatAmount(dashboardData?.metrics.deliveredOrders || 0)}
+                  </p>
                 </div>
-                <button className="rounded-lg border border-[#243149] px-3 py-2 text-xs text-slate-300">Last 7 days <ChevronDown size={13} className="ml-2 inline" /></button>
+                <div className="rounded-xl border border-[#243149] bg-[#0D1422] p-5">
+                  <p className="text-sm text-slate-400">Pending orders</p>
+                  <p className="mt-2 text-3xl font-bold">
+                    {dashboardLoading ? "—" : formatAmount(dashboardData?.metrics.pendingOrders || 0)}
+                  </p>
+                </div>
               </div>
-              <div className="mt-8 flex h-48 items-end justify-between gap-2">
-                {[35, 52, 42, 70, 56, 86, 64, 92, 68, 78, 57, 96].map((height, index) => (
-                  <div key={index} className="flex h-full flex-1 items-end">
-                    <div className="w-full rounded-t-md bg-gradient-to-t from-blue-700 to-blue-400 opacity-80 transition hover:opacity-100" style={{ height: `${height}%` }} />
-                  </div>
-                ))}
-              </div>
-              <div className="mt-3 flex justify-between text-[10px] text-slate-500">
-                <span>Mon</span><span>Tue</span><span>Wed</span><span>Thu</span><span>Fri</span><span>Sat</span><span>Sun</span>
-              </div>
+              <p className="mt-5 text-xs text-slate-500">
+                Revenue is calculated from delivered orders only. Historical chart data is not available yet.
+              </p>
             </div>
 
             <div className="rounded-2xl border border-purple-500/20 bg-gradient-to-br from-[#17152D] to-[#111C2F] p-6">
@@ -305,8 +461,8 @@ export default function Home() {
               <p className="mt-5 text-lg font-semibold">Your AI workspace is ready.</p>
               <p className="mt-2 text-sm leading-6 text-slate-400">Connect your business data to prepare AI-powered customer support and automation.</p>
               <div className="mt-5 rounded-xl border border-purple-500/20 bg-black/20 p-3">
-                <div className="flex items-center gap-2 text-xs text-purple-300"><Sparkles size={14} /> Demo mode</div>
-                <p className="mt-2 text-xs leading-5 text-slate-400">AI integrations are not connected yet. No messages are being sent.</p>
+                <div className="flex items-center gap-2 text-xs text-purple-300"><Sparkles size={14} /> Not connected</div>
+                <p className="mt-2 text-xs leading-5 text-slate-400">AI services have not been configured for this workspace yet.</p>
               </div>
               <button onClick={() => setActive("AI Assistant")} className="mt-5 flex w-full items-center justify-center gap-2 rounded-lg bg-purple-600 px-4 py-3 text-sm font-semibold hover:bg-purple-500">
                 Explore AI Assistant <ArrowUpRight size={16} />
@@ -317,26 +473,42 @@ export default function Home() {
           <section className="overflow-hidden rounded-2xl border border-[#243149] bg-[#111C2F]">
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[#243149] p-5 sm:p-6">
               <div>
-                <h3 className="font-bold">Recent Orders</h3>
-                <p className="mt-1 text-xs text-slate-500">Sample records for UI preview</p>
+                <h3 className="font-bold">{t("Recent Orders")}</h3>
+                <p className="mt-1 text-xs text-slate-500">Latest orders from this workspace</p>
               </div>
-              <button onClick={() => setActive("Orders")} className="text-xs font-semibold text-blue-400 hover:text-blue-300">View all orders <ArrowUpRight size={14} className="ml-1 inline" /></button>
+              <button onClick={() => router.push("/orders")} className="text-xs font-semibold text-blue-400 hover:text-blue-300">{t("View all orders")} <ArrowUpRight size={14} className="ml-1 inline" /></button>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full min-w-[650px] text-left text-sm">
                 <thead className="bg-[#0D1422] text-xs text-slate-500">
-                  <tr><th className="px-6 py-4 font-medium">Order ID</th><th className="px-6 py-4 font-medium">Customer</th><th className="px-6 py-4 font-medium">Product</th><th className="px-6 py-4 font-medium">Amount</th><th className="px-6 py-4 font-medium">Status</th></tr>
+                  <tr><th className="px-6 py-4 font-medium">{t("Order ID")}</th><th className="px-6 py-4 font-medium">{t("Customer")}</th><th className="px-6 py-4 font-medium">{t("Product")}</th><th className="px-6 py-4 font-medium">{t("Amount")}</th><th className="px-6 py-4 font-medium">{t("Status")}</th></tr>
                 </thead>
                 <tbody className="divide-y divide-[#243149]">
-                  {orders.map((order) => (
-                    <tr key={order.id} className="hover:bg-white/[0.02]">
-                      <td className="px-6 py-4 font-semibold text-blue-400">{order.id}</td>
-                      <td className="px-6 py-4">{order.customer}</td>
-                      <td className="px-6 py-4 text-slate-400">{order.product}</td>
-                      <td className="px-6 py-4 font-semibold">{order.amount}</td>
-                      <td className="px-6 py-4"><span className={`rounded-full px-2.5 py-1 text-xs font-medium ${order.status === "Confirmed" ? "bg-green-500/10 text-green-400" : order.status === "Processing" ? "bg-blue-500/10 text-blue-400" : order.status === "Delivered" ? "bg-purple-500/10 text-purple-400" : "bg-amber-500/10 text-amber-400"}`}>{order.status}</span></td>
-                    </tr>
-                  ))}
+                  {dashboardLoading ? (
+                    <tr><td colSpan={5} className="px-6 py-8 text-center text-slate-400">Loading orders...</td></tr>
+                  ) : dashboardData?.recentOrders.length ? (
+                    dashboardData.recentOrders.map((order) => (
+                      <tr key={order.id} className="hover:bg-white/[0.02]">
+                        <td className="px-6 py-4 font-semibold text-blue-400">{order.order_number}</td>
+                        <td className="px-6 py-4">{order.customer?.name || "Guest"}</td>
+                        <td className="px-6 py-4 text-slate-400">
+                          {order.items.length
+                            ? order.items.map((item) => `${item.product_name} × ${item.quantity}`).join(", ")
+                            : "—"}
+                        </td>
+                        <td className="px-6 py-4 font-semibold">{formatAmount(Number(order.total || 0))}</td>
+                        <td className="px-6 py-4">
+                          <span className={`rounded-full px-2.5 py-1 text-xs font-medium ${
+                            order.status === "delivered" ? "bg-green-500/10 text-green-400" :
+                            order.status === "cancelled" ? "bg-red-500/10 text-red-400" :
+                            "bg-amber-500/10 text-amber-400"
+                          }`}>{order.status}</span>
+                        </td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr><td colSpan={5} className="px-6 py-8 text-center text-slate-400">No orders found.</td></tr>
+                  )}
                 </tbody>
               </table>
             </div>
@@ -344,16 +516,30 @@ export default function Home() {
 
           <section className="grid grid-cols-1 gap-6 md:grid-cols-2">
             <div className="rounded-2xl border border-[#243149] bg-[#111C2F] p-6">
-              <h3 className="font-bold">Recent Activity</h3>
+              <h3 className="font-bold">{t("Recent Activity")}</h3>
               <div className="mt-5 space-y-5">
-                <div className="flex gap-3"><CircleCheck size={18} className="text-green-400" /><div><p className="text-sm">Dashboard workspace initialized</p><p className="mt-1 text-xs text-slate-500">System setup · Just now</p></div></div>
-                <div className="flex gap-3"><Package size={18} className="text-blue-400" /><div><p className="text-sm">Product module ready for setup</p><p className="mt-1 text-xs text-slate-500">Products · Demo</p></div></div>
-                <div className="flex gap-3"><Clock3 size={18} className="text-purple-400" /><div><p className="text-sm">Integrations awaiting configuration</p><p className="mt-1 text-xs text-slate-500">Integrations · Pending</p></div></div>
+                {dashboardLoading ? (
+                  <p className="text-sm text-slate-400">Loading activity...</p>
+                ) : dashboardData?.recentActivity.length ? (
+                  dashboardData.recentActivity.map((entry) => (
+                    <div key={entry.id} className="flex gap-3">
+                      <CircleCheck size={18} className="shrink-0 text-blue-400" />
+                      <div className="min-w-0">
+                        <p className="break-words text-sm">{entry.action} · {entry.table_name}</p>
+                        <p className="mt-1 text-xs text-slate-500">
+                          {new Date(entry.created_at).toLocaleString(language === "বাংলা" ? "bn-BD" : "en-US")}
+                        </p>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <p className="text-sm text-slate-400">No recent activity recorded yet.</p>
+                )}
               </div>
             </div>
             <div className="rounded-2xl border border-[#243149] bg-[#111C2F] p-6">
               <div className="flex items-center justify-between">
-                <h3 className="font-bold">Quick Actions</h3>
+                <h3 className="font-bold">{t("Quick Actions")}</h3>
                 <MoreHorizontal size={20} className="text-slate-500" />
               </div>
               <div className="mt-5 grid grid-cols-2 gap-3">
@@ -363,9 +549,17 @@ export default function Home() {
                   { label: "Customers", icon: Users, target: "Customers" },
                   { label: "Automations", icon: Workflow, target: "Automations" },
                 ].map(({ label, icon: Icon, target }) => (
-                  <button key={label} onClick={() => setActive(target)} className="flex flex-col items-start gap-3 rounded-xl border border-[#243149] bg-[#0D1422] p-4 text-left transition hover:border-blue-500/50">
+                  <button key={label} onClick={() => {
+                    const routes: Record<string, string> = {
+                      Products: "/products",
+                      Orders: "/orders",
+                      Customers: "/customers",
+                      Automations: "/automations",
+                    };
+                    if (routes[target]) router.push(routes[target]);
+                  }} className="flex flex-col items-start gap-3 rounded-xl border border-[#243149] bg-[#0D1422] p-4 text-left transition hover:border-blue-500/50">
                     <Icon size={20} className="text-blue-400" />
-                    <span className="text-xs font-semibold">{label}</span>
+                    <span className="text-xs font-semibold">{t(label)}</span>
                   </button>
                 ))}
               </div>
@@ -373,8 +567,17 @@ export default function Home() {
           </section>
 
           <footer className="flex flex-wrap items-center justify-between gap-2 border-t border-[#243149] py-5 text-xs text-slate-500">
-            <span>© 2026 NEXORA AI. All rights reserved.</span>
-            <span>Platform preview · Demo data only</span>
+            <div>
+              <span>© 2026 NEXORA AI. {t("All rights reserved.")}</span>
+              <p className="mt-2 text-[11px] text-slate-500">Founder & Developer: <span className="font-semibold text-slate-300">𝐀𝐇 𝐀𝐍𝐎𝐖𝐀𝐑 𝐇𝐎𝐒𝐒𝐀𝐍</span></p>
+              <div className="mt-2 flex flex-wrap gap-x-4 gap-y-2 text-[11px]">
+                <a className="text-blue-400 hover:text-blue-300" href="https://www.facebook.com/profile.php?id=61590404766833" target="_blank" rel="noreferrer">Facebook · AH ANOWAR</a>
+                <a className="text-cyan-400 hover:text-cyan-300" href="https://www.tiktok.com/@ah_anowar" target="_blank" rel="noreferrer">TikTok · @ah_anowar</a>
+                <a className="text-sky-400 hover:text-sky-300" href="https://t.me/AH_ANOWAR" target="_blank" rel="noreferrer">Telegram · @AH_ANOWAR</a>
+                <a className="text-green-400 hover:text-green-300" href="https://wa.me/8801609591314" target="_blank" rel="noreferrer">WhatsApp</a>
+              </div>
+            </div>
+            <span>{dashboardLoading ? "Loading workspace data..." : "Workspace dashboard"}</span>
           </footer>
         </div>
       </main>

@@ -18,9 +18,9 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "NEXORA AI — Business Automation",
-  description:
-    "AI-powered business automation platform for modern businesses.",
+  title: "NEXORA AI — Build • Automate • Grow",
+  description: "NEXORA AI brings business management, automation, analytics and AI tools together in one intelligent workspace.",
+  icons: { icon: "/icon.svg", shortcut: "/icon.svg" },
 };
 
 export default function RootLayout({
