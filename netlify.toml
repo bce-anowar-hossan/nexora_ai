@@ -1,0 +1,4 @@
+[build]
+  base = "nexora-app"
+  command = "npm run build"
+  publish = ".next"
